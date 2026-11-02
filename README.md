@@ -1,5 +1,7 @@
 # Connect
 
+[Website and beta downloads](https://connect-web-zeta.vercel.app) · [Server source](server) · [Website source](website)
+
 Connect is a free communication app for chatting, voice, screen sharing and self-hosted communities. This repository contains the verified standalone server source and the website.
 
 ## Source availability

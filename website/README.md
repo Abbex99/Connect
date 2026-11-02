@@ -1,5 +1,8 @@
 # Connect website
 
+Public repository: https://github.com/Abbex99/Connect
+Website: https://connect-web-zeta.vercel.app
+
 Swedish Connect beta website, made with local Inter fonts and the supplied Orbitom UI kit's visual language.
 
 Run `npm run dev` and open http://127.0.0.1:4780. No dependency install is required. Vercel serves the `public` folder. The website has no account system, database, directory, or relay backend yet.
