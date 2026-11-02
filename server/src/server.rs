@@ -35,6 +35,8 @@ pub struct ServerConfig {
 	pub alias: String,
 	pub name: String,
 	pub public: bool,
+	#[serde(default)]
+	pub password: Option<crate::server_password::PasswordAccess>,
 	pub directory_url: Option<String>,
 	pub panel_bind: String,
 	pub panel_origin: String,
@@ -47,6 +49,7 @@ impl ServerConfig {
 			alias: alias.into(),
 			name: name.into(),
 			public: false,
+			password: None,
 			directory_url: None,
 			panel_bind: "127.0.0.1:4748".into(),
 			panel_origin: "http://127.0.0.1:4748".into(),
@@ -54,8 +57,17 @@ impl ServerConfig {
 	}
 	pub fn load(root: &Path) -> Result<Self> {
 		let config: Self = storage::read_json(&root.join("server.json"), 16384)?;
+		if let Some(value) = &config.directory_url
+			&& !value.is_empty()
+		{
+			crate::directory::validate_url(value)?;
+		}
 		Alias::parse(&config.alias)?;
 		validate_text(&config.name, 96)?;
+		if let Some(password) = &config.password {
+			password.validate()?;
+			ensure!(!config.public, "Välj öppen server eller lösenord.");
+		}
 		Ok(config)
 	}
 }
@@ -182,6 +194,7 @@ pub struct Core {
 	generations: Mutex<HashMap<String, u64>>,
 	connections: Mutex<HashMap<String, iroh::endpoint::Connection>>,
 	directory_status: Mutex<String>,
+	directory_ready: AtomicBool,
 	sequence: AtomicU64,
 	closing: AtomicBool,
 	rates: Mutex<HashMap<String, (Instant, u32)>>,
@@ -235,6 +248,15 @@ impl Core {
 			.operation
 			.lock()
 			.map_err(|_| anyhow::anyhow!("Servern är upptagen."))?;
+		if matches!(authority, Authority::Peer(_))
+			&& self.config.password.is_some()
+			&& self.store.role(peer)? != Role::Owner
+		{
+			ensure!(
+				self.generations.lock().unwrap().contains_key(peer),
+				"Anslut med serverns aktuella lösenord först."
+			);
+		}
 		ensure!(!self.closing.load(Ordering::Acquire), "Servern stängs.");
 		let result = match request {
 			Request::Status => {
@@ -253,7 +275,34 @@ impl Core {
 				Response::Status(Status {
 					version: env!("CARGO_PKG_VERSION").into(),
 					directory_status: self.directory_status.lock().unwrap().clone(),
+					invitation_base: crate::directory_online::base(
+						self.config.directory_url.as_deref(),
+					)
+					.unwrap_or_default(),
 					active_sent_bytes: sent,
+					server_link: crate::directory_online::base(
+						self.config.directory_url.as_deref(),
+					)
+					.ok()
+					.filter(|s| !s.is_empty() && self.directory_ready.load(Ordering::Acquire))
+					.map(|s| {
+						format!(
+							"{}/s/{}",
+							s.trim_end_matches('/'),
+							Alias::parse(&self.config.alias)
+								.expect("validated config")
+								.slug
+						)
+					})
+					.unwrap_or_default(),
+					access_mode: if self.config.public {
+						"open"
+					} else if self.config.password.is_some() {
+						"password"
+					} else {
+						"invite"
+					}
+					.into(),
 					active_received_bytes: received,
 					server_id: self.server_id.clone(),
 					name: s.name,
@@ -378,14 +427,21 @@ impl Core {
 			);
 		}
 		let profile = hello.profile;
-		if self.config.public && hello.token.is_empty() {
+		if (self.config.public && hello.token.is_empty())
+			|| self
+				.config
+				.password
+				.as_ref()
+				.is_some_and(|p| p.accepts(&hello.token))
+		{
 			self.store.admit_public(peer, profile.clone(), now())?;
 		} else {
-			self.store.admit(
+			self.store.admit_with_gate(
 				peer,
 				profile.clone(),
 				(!hello.token.is_empty()).then_some(hello.token.as_str()),
 				now(),
+				self.config.password.is_some(),
 			)?;
 		}
 		self.room.lock().unwrap().join(peer, profile, "")?;
@@ -602,6 +658,7 @@ pub async fn start(root: &Path, transport: TransportConfig) -> Result<RunningSer
 		directory_status: Mutex::new(
 			"Servernamnet har ännu inte registrerats under denna körning.".into(),
 		),
+		directory_ready: AtomicBool::new(false),
 		sequence: AtomicU64::new(1),
 		closing: AtomicBool::new(false),
 		rates: Mutex::new(HashMap::new()),
@@ -612,6 +669,8 @@ pub async fn start(root: &Path, transport: TransportConfig) -> Result<RunningSer
 	let listener = endpoint.clone();
 	let shared = core.clone();
 	let publication_key = load_key(root)?;
+	let online_directory = crate::directory_online::base(core.config.directory_url.as_deref())?;
+	let publish_online = !transport.offline && !online_directory.is_empty();
 	let task = tokio::spawn(async move {
 		let mut tasks = JoinSet::new();
 		let publish_core = shared.clone();
@@ -620,6 +679,28 @@ pub async fn start(root: &Path, transport: TransportConfig) -> Result<RunningSer
 			let mut interval = tokio::time::interval(Duration::from_secs(60));
 			loop {
 				interval.tick().await;
+				*publish_core.directory_status.lock().unwrap() =
+					"Automatisk serverlänk är avstängd.".into();
+				// Refresh invitations after relay discovery and address changes.
+				publish_core.invitation.lock().unwrap().address = publish_endpoint.addr();
+				if publish_online {
+					let result = crate::directory_online::publish(
+						&online_directory,
+						&publish_core.config.alias,
+						publish_core.snapshot().name,
+						publish_endpoint.addr(),
+						&publication_key,
+						&publish_core.config,
+					)
+					.await;
+					publish_core
+						.directory_ready
+						.store(result.is_ok(), Ordering::Release);
+					*publish_core.directory_status.lock().unwrap() = match result {
+						Ok(()) => "Serverlänken är online i adressboken.".into(),
+						Err(error) => format!("{error} Nytt försök görs inom en minut."),
+					};
+				}
 				let root = publish_core.root.clone();
 				let publication = tokio::task::spawn_blocking(move || {
 					storage::read_json::<crate::directory_v2::Publication>(
@@ -637,12 +718,15 @@ pub async fn start(root: &Path, transport: TransportConfig) -> Result<RunningSer
 					) {
 					let result =
 						crate::directory_v2::publish(&publication.directory, &record).await;
-					*publish_core.directory_status.lock().unwrap() = if result.is_ok() {
-						"Servernamnet är registrerat i adressboken.".into()
-					} else {
-						"Namnregistreringen misslyckades. Kontrollera adressbok och anslutning."
-							.into()
-					};
+					publish_core
+						.directory_status
+						.lock()
+						.unwrap()
+						.push_str(if result.is_ok() {
+							" Profilnamnet är också registrerat."
+						} else {
+							" Registreringen av profilnamnet misslyckades. Kontrollera dess adressbok."
+						});
 				}
 				let maintenance = publish_core.clone();
 				let _ = tokio::task::spawn_blocking(move || maintenance.maintain(now())).await;
@@ -666,6 +750,29 @@ pub async fn start(root: &Path, transport: TransportConfig) -> Result<RunningSer
 
 #[cfg(test)]
 mod lifecycle_tests {
+	#[tokio::test]
+	async fn unpublished_server_does_not_advertise_an_unowned_name() {
+		let root = tempfile::tempdir().unwrap();
+		let mut config = super::ServerConfig::local("@test/unclaimed", "Unclaimed").unwrap();
+		config.public = true;
+		super::initialize(root.path(), config).unwrap();
+		let running = super::start(
+			root.path(),
+			crate::network::TransportConfig {
+				offline: true,
+				..Default::default()
+			},
+		)
+		.await
+		.unwrap();
+		let super::Response::Status(status) =
+			running.core.execute_local(super::Request::Status).unwrap()
+		else {
+			panic!("status")
+		};
+		assert!(status.server_link.is_empty());
+		running.close().await;
+	}
 	use super::*;
 	fn hello(name: &str, token: &str) -> Hello {
 		Hello {

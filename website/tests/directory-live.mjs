@@ -1,0 +1,55 @@
+import {generateKeyPairSync,sign,randomBytes,createDecipheriv,pbkdf2Sync,createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {database} from '../lib/directory-store.mjs';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const base=process.env.TEST_URL||'https://mailhantering.se';
+const {privateKey,publicKey}=generateKeyPairSync('ed25519');
+const id=publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('hex');
+const label='qa-'+randomBytes(8).toString('hex');
+const record={owner:label,slug:label,name:'Testserver Åäö',address:{id,addrs:[{Relay:'https://euc1-1.relay.n0.iroh.link./'}]},issued_at:Math.floor(Date.now()/1000)};
+const value={record,signature:sign(null,Buffer.from('connect/server-location/3\0'+JSON.stringify(record)),privateKey).toString('base64url')};
+const password=JSON.parse(readFileSync(new URL('./fixtures/rust-directory.json',import.meta.url),'utf8')).password;
+const access={server:id,issued_at:record.issued_at,mode:'password',salt:password.salt,nonce:password.nonce,ciphertext:password.ciphertext};
+access.signature=sign(null,Buffer.from('connect/server-access/1\0'+JSON.stringify([id,record.issued_at,access.mode,access.salt,access.nonce,access.ciphertext])),privateKey).toString('base64url');
+value.access=access;
+let browser;
+try{
+ let res=await fetch(base+'/v3/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});
+ assert.equal(res.status,204,await res.text());
+ res=await fetch(base+'/v3/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});assert.equal(res.status,409);
+ res=await fetch(base+'/v3/servers/'+id);assert.equal(res.status,200);assert.deepEqual(await res.json(),value);
+ res=await fetch(base+'/v3/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...value,signature:'a'.repeat(86)})});assert.equal(res.status,400);
+ res=await fetch(base+'/v3/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...value,padding:'a'.repeat(17000)})});assert.equal(res.status,413);
+ browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH});
+ const page=await browser.newPage({viewport:{width:1100,height:800}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const token='ab'.repeat(32),requests=[];page.on('request',req=>requests.push(req.url()));
+ const pageResponse=await page.goto(base+'/server/'+id+'#'+token);assert.equal(pageResponse.status(),200);
+ try{await page.locator('#join').waitFor({state:'visible'});}catch(e){console.log('Invite diagnostics',JSON.stringify({status:await page.locator('#status').textContent({timeout:2000}).catch(()=>null),errors}));throw e;}
+ assert.equal(await page.locator('#server-name').textContent(),record.name);
+ const invite=await page.locator('#invite').inputValue();
+ const decoded=JSON.parse(Buffer.from(invite.split('/').pop(),'base64url'));
+ assert.equal(decoded.token,token);assert.equal(decoded.address.id,id);assert.equal(decoded.version,2);
+ assert.ok(!requests.some(url=>url.includes(token)),'Capability must not be sent in any request');
+ await page.screenshot({path:'test-results/directory-invite.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.goto(base+'/s/'+label);await page.locator('#password-box').waitFor({state:'visible'});
+ await page.locator('#password').fill('wrong');await page.locator('#unlock').click();await page.getByText('Fel lösenord. Försök igen.',{exact:true}).waitFor();
+ assert.equal(await page.locator('#join').isVisible(),false);
+ await page.locator('#password').fill('test-password');await page.locator('#unlock').click();await page.locator('#join').waitFor({state:'visible'});
+ const unlocked=JSON.parse(Buffer.from((await page.locator('#invite').inputValue()).split('/').pop(),'base64url'));
+ assert.equal(createHash('sha256').update(unlocked.token).digest('hex'),password.token_hash);
+ assert.equal(await page.locator('#invite').isVisible(),false,'Technical connection string should be hidden');
+ assert.ok(!requests.some(url=>url.includes('test-password')));
+ await page.goto(base+'/server/'+'0'.repeat(64));
+ await page.locator('#retry').waitFor({state:'visible'});
+ assert.ok((await page.locator('#status').textContent()).includes('offline'));
+ assert.equal(errors.length,0,errors.join('\n'));
+ console.log('Live HTTPS API: register, replay, signed lookup, forgery and size checks passed. Browser: real invitation, offline state, mobile width and no token requests passed.');
+}finally{
+ await browser?.close();
+ const sql=database();await sql`DELETE FROM connect_directory_records WHERE key=${'id:'+id}`;await sql`DELETE FROM connect_server_names WHERE server=${id}`;
+}

@@ -28,6 +28,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 iroh = "=1.4.1"
 keyring = { version = "3.6", features = ["windows-native"] }
 rand = "0.9"
+ring = "0.17"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rfd = { version = "0.15", optional = true }

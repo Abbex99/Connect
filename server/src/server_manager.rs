@@ -316,15 +316,35 @@ async fn control(
 #[serde(tag = "action", rename_all = "snake_case")]
 enum Action {
 	Status,
-	Job { id: String },
-	Setup { name: String, alias: String },
+	Job {
+		id: String,
+	},
+	Setup {
+		name: String,
+		alias: String,
+		#[serde(default)]
+		password: String,
+	},
 	Start,
 	Stop,
-	Configure { public: bool },
+	Configure {
+		public: bool,
+		#[serde(default)]
+		directory_url: Option<String>,
+		#[serde(default)]
+		password: Option<String>,
+		#[serde(default)]
+		alias: Option<String>,
+	},
 	RecoveryKey,
 	OwnerInvite,
-	Backup { recipient: String },
-	Restore { backup: PathBuf, key_file: PathBuf },
+	Backup {
+		recipient: String,
+	},
+	Restore {
+		backup: PathBuf,
+		key_file: PathBuf,
+	},
 }
 async fn action(
 	State(state): State<Arc<Manager>>,
@@ -375,10 +395,20 @@ async fn action(
 async fn perform_action(state: Arc<Manager>, action: Action) -> Result<Json<Value>, HttpError> {
 	match action {
 		Action::Status | Action::Job { .. } => {}
-		Action::Setup { name, alias } => {
+		Action::Setup {
+			name,
+			alias,
+			password,
+		} => {
 			let root = state.root.clone();
 			tokio::task::spawn_blocking(move || {
-				server::initialize(&root, ServerConfig::local(alias.trim(), name.trim())?)
+				let mut config = ServerConfig::local(alias.trim(), name.trim())?;
+				config.public = password.is_empty();
+				if !password.is_empty() {
+					config.password =
+						Some(crate::server_password::PasswordAccess::create(&password)?);
+				}
+				server::initialize(&root, config)
 			})
 			.await
 			.map_err(bad)?
@@ -391,7 +421,12 @@ async fn perform_action(state: Arc<Manager>, action: Action) -> Result<Json<Valu
 			state.start().await.map_err(bad)?;
 		}
 		Action::Stop => state.stop().await,
-		Action::Configure { public } => {
+		Action::Configure {
+			public,
+			directory_url,
+			password,
+			alias,
+		} => {
 			if state.running.lock().await.is_some() {
 				return Err(bad("Stoppa servern innan du ändrar åtkomsten."));
 			}
@@ -400,6 +435,22 @@ async fn perform_action(state: Arc<Manager>, action: Action) -> Result<Json<Valu
 				let _lock = server::lock_directory(&root)?;
 				let mut config = ServerConfig::load(&root)?;
 				config.public = public;
+				if let Some(alias) = alias {
+					crate::protocol::Alias::parse(&alias)?;
+					config.alias = alias;
+				}
+				if public {
+					config.password = None;
+				} else if let Some(password) = password.filter(|p| !p.is_empty()) {
+					config.password =
+						Some(crate::server_password::PasswordAccess::create(&password)?);
+				}
+				if let Some(url) = directory_url {
+					if !url.is_empty() {
+						crate::directory::validate_url(&url)?;
+					}
+					config.directory_url = Some(url);
+				}
 				crate::storage::write_json(&root.join("server.json"), &config, 16384)
 			})
 			.await

@@ -1,4 +1,5 @@
 pub mod directory;
+pub mod directory_online;
 pub mod directory_v2;
 pub mod identity;
 pub mod media;
@@ -17,5 +18,6 @@ pub mod server_backup;
 pub mod server_control;
 pub mod server_manager;
 pub mod server_migration;
+pub mod server_password;
 pub mod server_store;
 mod server_transport;

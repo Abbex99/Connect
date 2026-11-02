@@ -1,0 +1,21 @@
+CONNECT - FELSOKNING
+
+1. Packa upp hela zip-filen i en ny mapp.
+2. Dubbelklicka pa Starta felsokning.bat. Administrator behovs inte.
+3. Valj den connect.exe du normalt startar. Avbryt hoppar over versionskontrollen.
+4. Vanta tills det star KLART, normalt mindre an tva minuter.
+5. Skicka Connect-rapport-....txt till personen som hjalper dig.
+
+Connect kan vara oppet under testet. Starta inte en ny server.
+
+Testet kontrollerar filens hash, DNS och TCP 443 till de fyra standardrelaerna.
+Sedan ansluter tva tillfalliga testklienter genom Connects Rust-natverkskod och
+utbyter ett syntetiskt testmeddelande. Direkt IP-trafik ar avstangd i det testet.
+Inga riktiga anvandarprofiler, chattar, inbjudningar eller nycklar anvands.
+Temporara testfiler skapas och tas normalt bort nar testet avslutas.
+Inga brandvaggsregler, natverksinstallningar eller Connect-installningar andras.
+Rapporten skickas inte automatiskt. Du kan lasa den innan du delar den.
+
+Ett godkant test bevisar inte att just er server eller inbjudan fungerar.
+TCP-testet ensamt provar inte TLS eller relaprotokollet; relachattestet gor det.
+Testprogrammet ar byggt fran den aterstallda natverkskoden och ersatter inte appen.

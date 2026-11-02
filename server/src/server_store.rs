@@ -268,6 +268,16 @@ PRAGMA user_version=1;")?;
 		token: Option<&str>,
 		now: u64,
 	) -> Result<Role> {
+		self.admit_with_gate(peer, profile, token, now, false)
+	}
+	pub(crate) fn admit_with_gate(
+		&self,
+		peer: &str,
+		profile: Profile,
+		token: Option<&str>,
+		now: u64,
+		password_gate: bool,
+	) -> Result<Role> {
 		validate_peer(peer)?;
 		profile.validate()?;
 		let p = serde_json::to_string(&profile)?;
@@ -285,7 +295,7 @@ PRAGMA user_version=1;")?;
                 tx.execute("UPDATE members SET profile=?1 WHERE peer=?2", params![p, peer])?;
                 return Ok(Role::Owner);
             }
-            if state.is_some_and(|s| s.0) {
+            if state.is_some_and(|s| s.0) && (!password_gate || role(tx,peer)?==Role::Owner) {
                 tx.execute("UPDATE members SET profile=?1 WHERE peer=?2", params![p, peer])?;
                 return role(tx, peer);
             }
@@ -299,7 +309,7 @@ PRAGMA user_version=1;")?;
             ensure!(changed == 1, "Inbjudan är ogiltig, förbrukad eller har gått ut.");
             ensure_capacity(tx, peer)?;
             tx.execute(
-                "INSERT INTO members(peer,profile,role,active,banned) VALUES(?1,?2,'member',1,0) ON CONFLICT(peer) DO UPDATE SET profile=excluded.profile,role='member',active=1",
+                "INSERT INTO members(peer,profile,role,active,banned) VALUES(?1,?2,'member',1,0) ON CONFLICT(peer) DO UPDATE SET profile=excluded.profile,role=CASE WHEN members.active=1 THEN members.role ELSE 'member' END,active=1",
                 params![peer, p],
             )?;
             audit(tx, peer, "admit", now)?;

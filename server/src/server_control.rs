@@ -33,6 +33,12 @@ pub enum Request {
 pub struct Status {
 	pub version: String,
 	pub directory_status: String,
+	#[serde(default)]
+	pub invitation_base: String,
+	#[serde(default)]
+	pub server_link: String,
+	#[serde(default)]
+	pub access_mode: String,
 	pub active_sent_bytes: u64,
 	pub active_received_bytes: u64,
 	pub server_id: String,
