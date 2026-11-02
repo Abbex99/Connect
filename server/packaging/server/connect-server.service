@@ -1,0 +1,24 @@
+[Unit]
+Description=Connect Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=connect-server
+Group=connect-server
+WorkingDirectory=/var/lib/connect-server
+ExecStart=/opt/connect-server/connect-server run --data /var/lib/connect-server
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/connect-server
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

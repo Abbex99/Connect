@@ -1,0 +1,5 @@
+.vercel/
+node_modules/
+public/downloads/*.zip
+test-results/
+.env*

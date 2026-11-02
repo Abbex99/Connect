@@ -1,0 +1,9 @@
+{
+    admin off
+    auto_https disable_redirects
+    default_sni {$CONNECT_PANEL_HOST}
+}
+https://{$CONNECT_PANEL_HOST}:4750 {
+    tls internal
+    reverse_proxy connect:4749
+}

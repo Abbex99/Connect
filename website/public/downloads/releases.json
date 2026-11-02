@@ -1,0 +1,27 @@
+[
+  {
+    "file": "Connect-Server-Linux-x64.zip",
+    "bytes": 9854446,
+    "sha256": "323da0cac9df1f88c820b958de1dd550fa062bd5c2cbeec9248c63a558110a0d"
+  },
+  {
+    "file": "Connect-Server-Source.zip",
+    "bytes": 648431,
+    "sha256": "9c76415642fe497cbb360906db9c76b94b72c2e578cb487c7dac951b21346215"
+  },
+  {
+    "file": "Connect-Server-Windows-x64.zip",
+    "bytes": 21922061,
+    "sha256": "ce78a626c90026be42d1020864f27ebf0dbacfeadcc7e27d390a3c1cad256186"
+  },
+  {
+    "file": "Connect-Website-Source.zip",
+    "bytes": 536216,
+    "sha256": "1cef902d7b06983ee046b7b4e1b0a5c4472586095822074675f587c9152349f9"
+  },
+  {
+    "file": "Connect-Windows-x64-ebea803d.zip",
+    "bytes": 52630170,
+    "sha256": "daba30cc3f85751369888f0f5c84eebe6e2111dd1952d614228c359472b1a654"
+  }
+]

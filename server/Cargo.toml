@@ -1,0 +1,68 @@
+[workspace]
+
+[patch.crates-io]
+iroh = { path = "vendor/iroh" }
+
+[package]
+name = "serein-connect"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:eframe", "dep:egui_extras", "dep:rfd"]
+
+[dependencies]
+anyhow = "1"
+age = { version = "=0.12.1", default-features = false }
+axum = "0.8"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+base64 = "0.22"
+h264-reader = "=0.9.0"
+eframe = { version = "=0.37.0", optional = true, default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+egui_extras = { version = "=0.37.0", optional = true, features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+iroh = "=1.4.1"
+keyring = { version = "3.6", features = ["windows-native"] }
+rand = "0.9"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rfd = { version = "0.15", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+rusqlite = { version = "=0.41.1", features = ["bundled", "backup"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs", "signal"] }
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+strip = true
+lto = "thin"
+
+[[bin]]
+name = "serein-connect"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "serein-directory"
+path = "src/bin/directory.rs"
+
+
+[[bin]]
+name = "connect-server"
+path = "src/bin/server.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["fs"] }

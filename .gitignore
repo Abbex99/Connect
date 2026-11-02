@@ -1,0 +1,13 @@
+target/
+node_modules/
+.vercel/
+.env*
+*.zip
+*.exe
+*.db
+*.db-*
+data/
+data.panel/
+operator.key
+server.key
+launch.json

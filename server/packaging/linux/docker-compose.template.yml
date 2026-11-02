@@ -1,0 +1,57 @@
+name: connect-server
+services:
+  connect:
+    image: connect-server-local:@VERSION@
+    pull_policy: never
+    container_name: connect-server
+    restart: unless-stopped
+    user: "10001:10001"
+    command: ["manage", "--data", "/state/data", "--listen", "0.0.0.0:4749", "--origin", "https://@HOST@:4750", "--key-file", "/state/operator.key"]
+    volumes:
+      - /DATA/AppData/connect-server/state:/state
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    stop_grace_period: 2m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header='Host: @HOST@:4750' http://127.0.0.1:4749/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+  panel:
+    image: caddy:2.11.7-alpine
+    container_name: connect-server-panel
+    restart: unless-stopped
+    ports:
+      - "4750:4750/tcp"
+    environment:
+      CONNECT_PANEL_HOST: "@HOST@"
+    volumes:
+      - /DATA/AppData/connect-server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /DATA/AppData/connect-server/caddy-data:/data
+      - /DATA/AppData/connect-server/caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # The official Caddy binary carries this file capability; retain it to allow exec.
+    cap_add: [NET_BIND_SERVICE]
+    depends_on:
+      connect:
+        condition: service_healthy
+x-casaos:
+  id: local.connect.server
+  main: panel
+  index: /
+  scheme: https
+  port_map: "4750"
+  title:
+    en_US: Connect Server
+    sv_SE: Connect Server
+  tagline:
+    en_US: Your own Connect server
+  category: Chat
+  architectures: [amd64]
